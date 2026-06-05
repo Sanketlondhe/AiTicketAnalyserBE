@@ -1,9 +1,10 @@
-package com.example.aiticketanalyser.service;
+package com.ticket.analyser.service;
 
-import com.example.aiticketanalyser.dto.TicketAnalysis;
-import com.example.aiticketanalyser.exception.TicketAnalysisException;
-import com.example.aiticketanalyser.validation.TicketValidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ticket.analyser.dto.TicketAnalysis;
+import com.ticket.analyser.exception.TicketAnalysisException;
+import com.ticket.analyser.validation.TicketValidator;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -22,74 +23,62 @@ public class TicketAnalysisService {
     private final TicketValidator ticketValidator;
     private final ObjectMapper objectMapper;
 
-    public TicketAnalysis analyse(String ticketText) {
+    // ── Cached once at startup — not reloaded every request ─────────────────
+    private String promptTemplate;
 
-        // Step 1 — Validate input
-        ticketValidator.validate(ticketText);
-        log.info("Starting analysis for ticket of length: {}", ticketText.length());
-
-        // Step 2 — Load prompt template
-        String promptTemplate = loadPromptTemplate();
-
-        // Step 3 — Build final prompt
-        String prompt = promptTemplate.replace("{ticketText}", ticketText);
-
-        // Step 4 — Call OpenAI via Spring AI
-        String aiResponse = callOpenAi(prompt);
-        log.debug("Raw AI response received, length: {}", aiResponse.length());
-
-        // Step 5 — Parse JSON response
-        return parseResponse(aiResponse);
-    }
-
-    // ── Load prompt from resources ──────────────────────────────────────────
-    private String loadPromptTemplate() {
+    @PostConstruct
+    public void init() {
         try {
             ClassPathResource resource =
-                    new ClassPathResource("prompts/ticket-analysis-prompt.st");
-            return StreamUtils.copyToString(
-                    resource.getInputStream(), StandardCharsets.UTF_8);
+                new ClassPathResource("prompts/ticket-analysis-prompt.st");
+            promptTemplate = StreamUtils.copyToString(
+                resource.getInputStream(), StandardCharsets.UTF_8);
+            log.info("Prompt template loaded and cached successfully.");
         } catch (Exception ex) {
-            log.error("Failed to load prompt template: {}", ex.getMessage());
-            throw new TicketAnalysisException("Failed to load AI prompt template.", ex);
+            throw new RuntimeException("Failed to load prompt template on startup.", ex);
         }
     }
 
-    // ── Call OpenAI via Spring AI ChatClient ────────────────────────────────
+    public TicketAnalysis analyse(String ticketText) {
+        ticketValidator.validate(ticketText);
+        log.info("Analysing ticket, length: {}", ticketText.length());
+
+        String prompt = promptTemplate.replace("{ticketText}", ticketText);
+        String aiResponse = callOpenAi(prompt);
+        return parseResponse(aiResponse);
+    }
+
     private String callOpenAi(String prompt) {
         try {
-            return chatClient
+            long start = System.currentTimeMillis();
+            String response = chatClient
                     .prompt()
                     .user(prompt)
                     .call()
                     .content();
+            log.info("OpenAI responded in {}ms", System.currentTimeMillis() - start);
+            return response;
         } catch (Exception ex) {
             log.error("OpenAI API call failed: {}", ex.getMessage());
             throw new TicketAnalysisException(
-                    "Failed to get response from AI service. Please try again.", ex);
+                "Failed to get response from AI service. Please try again.", ex);
         }
     }
 
-    // ── Parse AI JSON response into TicketAnalysis ──────────────────────────
     private TicketAnalysis parseResponse(String response) {
         try {
-            // Clean any accidental markdown fences
             String cleaned = response
                     .replaceAll("```json", "")
                     .replaceAll("```", "")
                     .trim();
-
             TicketAnalysis result = objectMapper.readValue(cleaned, TicketAnalysis.class);
-            log.info("Analysis complete — priority: {}, sentiment: {}, team: {}",
-                    result.getPriority(),
-                    result.getSentiment(),
-                    result.getSuggestedTeam());
+            log.info("Analysis done — priority: {}, sentiment: {}",
+                    result.getPriority(), result.getSentiment());
             return result;
-
         } catch (Exception ex) {
             log.error("Failed to parse AI response: {}", ex.getMessage());
             throw new TicketAnalysisException(
-                    "AI returned an unexpected format. Please try again.", ex);
+                "AI returned unexpected format. Please try again.", ex);
         }
     }
 }
