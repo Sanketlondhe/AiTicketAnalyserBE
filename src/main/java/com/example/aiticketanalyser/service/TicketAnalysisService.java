@@ -23,7 +23,6 @@ public class TicketAnalysisService {
     private final TicketValidator ticketValidator;
     private final ObjectMapper objectMapper;
 
-    // ── Cached once at startup — not reloaded every request ─────────────────
     private String promptTemplate;
 
     @PostConstruct
@@ -33,35 +32,39 @@ public class TicketAnalysisService {
                 new ClassPathResource("prompts/ticket-analysis-prompt.st");
             promptTemplate = StreamUtils.copyToString(
                 resource.getInputStream(), StandardCharsets.UTF_8);
-            log.info("Prompt template loaded and cached successfully.");
+            log.info("Prompt template cached at startup.");
         } catch (Exception ex) {
-            throw new RuntimeException("Failed to load prompt template on startup.", ex);
+            throw new RuntimeException("Failed to load prompt template.", ex);
         }
     }
 
     public TicketAnalysis analyse(String ticketText) {
         ticketValidator.validate(ticketText);
-        log.info("Analysing ticket, length: {}", ticketText.length());
 
         String prompt = promptTemplate.replace("{ticketText}", ticketText);
-        String aiResponse = callOpenAi(prompt);
-        return parseResponse(aiResponse);
-    }
 
-    private String callOpenAi(String prompt) {
         try {
             long start = System.currentTimeMillis();
-            String response = chatClient
-                    .prompt()
+
+            // Collect full streaming response
+            StringBuilder responseBuilder = new StringBuilder();
+
+            chatClient.prompt()
                     .user(prompt)
-                    .call()
-                    .content();
-            log.info("OpenAI responded in {}ms", System.currentTimeMillis() - start);
-            return response;
+                    .stream()
+                    .content()
+                    .doOnNext(responseBuilder::append)
+                    .blockLast();
+
+            log.info("OpenAI streamed response in {}ms",
+                    System.currentTimeMillis() - start);
+
+            return parseResponse(responseBuilder.toString());
+
         } catch (Exception ex) {
-            log.error("OpenAI API call failed: {}", ex.getMessage());
+            log.error("OpenAI call failed: {}", ex.getMessage());
             throw new TicketAnalysisException(
-                "Failed to get response from AI service. Please try again.", ex);
+                "AI service failed. Please try again.", ex);
         }
     }
 
@@ -71,14 +74,11 @@ public class TicketAnalysisService {
                     .replaceAll("```json", "")
                     .replaceAll("```", "")
                     .trim();
-            TicketAnalysis result = objectMapper.readValue(cleaned, TicketAnalysis.class);
-            log.info("Analysis done — priority: {}, sentiment: {}",
-                    result.getPriority(), result.getSentiment());
-            return result;
+            return objectMapper.readValue(cleaned, TicketAnalysis.class);
         } catch (Exception ex) {
-            log.error("Failed to parse AI response: {}", ex.getMessage());
+            log.error("Parse failed: {}", ex.getMessage());
             throw new TicketAnalysisException(
-                "AI returned unexpected format. Please try again.", ex);
+                "AI returned unexpected format.", ex);
         }
     }
 }
