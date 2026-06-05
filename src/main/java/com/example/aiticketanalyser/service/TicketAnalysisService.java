@@ -1,9 +1,9 @@
 package com.ticket.analyser.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.ticket.analyser.dto.TicketAnalysis;
-import com.ticket.analyser.exception.TicketAnalysisException;
-import com.ticket.analyser.validation.TicketValidator;
+import com.example.aiticketanalyser.dto.TicketAnalysis;
+import com.example.aiticketanalyser.exception.TicketAnalysisException;
+import com.example.aiticketanalyser.validation.TicketValidator;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
