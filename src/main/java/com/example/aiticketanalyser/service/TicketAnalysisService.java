@@ -1,4 +1,4 @@
-package com.ticket.analyser.service;
+package com.example.aiticketanalyser.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.aiticketanalyser.dto.TicketAnalysis;
@@ -6,7 +6,8 @@ import com.example.aiticketanalyser.exception.TicketAnalysisException;
 import com.example.aiticketanalyser.validation.TicketValidator;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
@@ -14,10 +15,12 @@ import org.springframework.util.StreamUtils;
 
 import java.nio.charset.StandardCharsets;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TicketAnalysisService {
+
+    private static final Logger log =
+            LoggerFactory.getLogger(TicketAnalysisService.class);
 
     private final ChatClient chatClient;
     private final TicketValidator ticketValidator;
@@ -40,27 +43,16 @@ public class TicketAnalysisService {
 
     public TicketAnalysis analyse(String ticketText) {
         ticketValidator.validate(ticketText);
-
         String prompt = promptTemplate.replace("{ticketText}", ticketText);
-
         try {
             long start = System.currentTimeMillis();
-
-            // Collect full streaming response
-            StringBuilder responseBuilder = new StringBuilder();
-
-            chatClient.prompt()
+            String response = chatClient
+                    .prompt()
                     .user(prompt)
-                    .stream()
-                    .content()
-                    .doOnNext(responseBuilder::append)
-                    .blockLast();
-
-            log.info("OpenAI streamed response in {}ms",
-                    System.currentTimeMillis() - start);
-
-            return parseResponse(responseBuilder.toString());
-
+                    .call()
+                    .content();
+            log.info("OpenAI responded in {}ms", System.currentTimeMillis() - start);
+            return parseResponse(response);
         } catch (Exception ex) {
             log.error("OpenAI call failed: {}", ex.getMessage());
             throw new TicketAnalysisException(
