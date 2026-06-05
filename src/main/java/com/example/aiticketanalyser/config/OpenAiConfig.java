@@ -17,7 +17,8 @@ public class OpenAiConfig {
                 registry.addMapping("/api/**")
                         .allowedOrigins(
                                 "http://localhost:5173",
-                                "http://localhost:3000"
+                                "http://localhost:3000",
+                                "https://ai-ticket-analyser-fe.vercel.app"
                         )
                         .allowedMethods("GET", "POST", "OPTIONS")
                         .allowedHeaders("*");
